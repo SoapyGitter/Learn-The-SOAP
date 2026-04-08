@@ -1,0 +1,134 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-midnight-900 text-gray-100 font-sans antialiased;
+    background-image:
+      radial-gradient(ellipse at 20% 50%, rgba(0, 255, 135, 0.03) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 20%, rgba(245, 158, 11, 0.03) 0%, transparent 50%);
+    min-height: 100vh;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-midnight-800;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-surface-elevated rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-500;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply px-4 py-2 rounded-lg bg-neon text-midnight-900 font-semibold text-sm
+           hover:bg-neon-dim transition-all duration-200 shadow-neon
+           disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none
+           active:scale-95;
+  }
+
+  .btn-secondary {
+    @apply px-4 py-2 rounded-lg border border-surface-elevated text-gray-300 font-medium text-sm
+           hover:border-gray-500 hover:text-white transition-all duration-200
+           disabled:opacity-40 disabled:cursor-not-allowed
+           active:scale-95;
+  }
+
+  .btn-danger {
+    @apply px-4 py-2 rounded-lg border border-red-800 text-red-400 font-medium text-sm
+           hover:bg-red-900/30 transition-all duration-200
+           active:scale-95;
+  }
+
+  .card {
+    @apply bg-surface rounded-xl border border-surface-elevated shadow-card;
+  }
+
+  .card-raised {
+    @apply bg-surface-raised rounded-xl border border-surface-elevated shadow-card;
+  }
+
+  .input-field {
+    @apply w-full bg-midnight-800 border border-surface-elevated rounded-lg px-4 py-3
+           text-gray-100 placeholder-gray-600 font-mono text-sm
+           focus:outline-none focus:border-neon focus:ring-1 focus:ring-neon/30
+           transition-colors duration-200;
+  }
+
+  .tag {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium;
+  }
+
+  .progress-bar-track {
+    @apply h-2 bg-midnight-800 rounded-full overflow-hidden;
+  }
+
+  .progress-bar-fill {
+    @apply h-full rounded-full transition-all duration-700 ease-out;
+  }
+
+  /* Terminal / code output */
+  .terminal {
+    @apply font-mono text-sm bg-midnight-950 rounded-lg border border-surface-elevated
+           text-green-400 p-4 overflow-auto;
+    min-height: 160px;
+  }
+
+  .terminal-line {
+    @apply leading-relaxed;
+  }
+
+  .terminal-line.error {
+    @apply text-red-400;
+  }
+
+  .terminal-line.info {
+    @apply text-blue-400;
+  }
+
+  .terminal-line.success {
+    @apply text-neon;
+  }
+}
+
+/* Prism code editor overrides */
+.code-editor-container {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace !important;
+  font-size: 13px !important;
+  line-height: 1.6 !important;
+  background: #050810 !important;
+  border-radius: 8px;
+}
+
+.code-editor-container textarea {
+  outline: none !important;
+  caret-color: #00ff87;
+}
+
+/* Neon glow text */
+.text-neon-glow {
+  color: #00ff87;
+  text-shadow: 0 0 10px #00ff8766;
+}
+
+/* Lock overlay */
+.lock-overlay {
+  backdrop-filter: blur(2px);
+}

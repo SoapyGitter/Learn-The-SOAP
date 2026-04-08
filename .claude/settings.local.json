@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir \"c:\\\\Users\\\\user\\\\Desktop\\\\Projects\\\\Learn The SOAP\")",
+      "Bash(cmd /c \"dir \\\\\"c:\\\\Users\\\\user\\\\Desktop\\\\Projects\\\\Learn The SOAP\\\\\"\")",
+      "Bash(npm create:*)",
+      "Bash(cmd /c \"type nul > \\\\\"c:\\\\Users\\\\user\\\\Desktop\\\\Projects\\\\Learn The SOAP\\\\package.json\\\\\"\")",
+      "Bash(npm install:*)",
+      "Bash(npm run:*)"
+    ]
+  }
+}
