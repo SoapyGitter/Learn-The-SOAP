@@ -1,13 +1,122 @@
 import React, { useState, useEffect } from 'react'
 import {
-  CheckCircle2, XCircle, Lightbulb, Play, AlertTriangle, ChevronDown, ChevronUp, Loader2
+  CheckCircle2, XCircle, Lightbulb, Play, ChevronDown, ChevronUp,
+  Loader2, FlaskConical, BookOpen
 } from 'lucide-react'
 import WebCompiler from './WebCompiler'
-import { validateCode, loadPyodide } from '../utils/CompilerUtility'
+import { validateCode, runTestCases, loadPyodide } from '../utils/CompilerUtility'
 
 function normalizeOutput(str) {
   return (str ?? '').trim().replace(/\r\n/g, '\n').replace(/\n+$/, '')
 }
+
+// ── Examples Panel ─────────────────────────────────────────
+
+function ExamplesPanel({ examples }) {
+  if (!examples || examples.length === 0) return null
+  return (
+    <div className="rounded-lg border border-surface-elevated bg-midnight-900 overflow-hidden">
+      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-surface-elevated">
+        <BookOpen size={12} className="text-gray-600" />
+        <span className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Examples</span>
+      </div>
+      <div className="divide-y divide-surface-elevated">
+        {examples.map((ex, i) => (
+          <div key={i} className="px-3 py-2 grid grid-cols-2 gap-3 text-xs font-mono">
+            <div>
+              <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-1">Input</div>
+              <pre className="text-gray-300 whitespace-pre-wrap">{ex.input}</pre>
+            </div>
+            <div>
+              <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-1">Output</div>
+              <pre className="text-neon/80 whitespace-pre-wrap">{ex.output}</pre>
+            </div>
+            {ex.note && (
+              <div className="col-span-2 text-[10px] text-gray-600 italic">{ex.note}</div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Test Cases Panel ──────────────────────────────────────
+
+function TestCaseRow({ result, index }) {
+  const { call, expected, actual, passed, error } = result
+  return (
+    <div className={`flex items-start gap-2 px-3 py-2 text-xs font-mono
+                     ${passed ? '' : 'bg-red-500/5'}`}>
+      <div className="mt-0.5 shrink-0">
+        {passed
+          ? <CheckCircle2 size={12} className="text-neon" />
+          : <XCircle size={12} className="text-red-400" />
+        }
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-gray-400 truncate">
+          <span className="text-gray-600">#{index + 1}</span>{' '}
+          {call}
+        </div>
+        {!passed && (
+          <div className="mt-1 grid grid-cols-2 gap-2 text-[10px]">
+            <div>
+              <span className="text-gray-600">expected: </span>
+              <span className="text-neon/70">{expected}</span>
+            </div>
+            <div>
+              <span className="text-gray-600">got: </span>
+              <span className="text-red-400">{error || actual || '(empty)'}</span>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function TestResultsPanel({ results, running }) {
+  if (running) {
+    return (
+      <div className="flex items-center gap-2 p-3 rounded-lg border border-surface-elevated text-xs text-gray-500">
+        <Loader2 size={12} className="animate-spin" />
+        Running test cases…
+      </div>
+    )
+  }
+  if (!results || results.length === 0) return null
+
+  const passed = results.filter(r => r.passed).length
+  const total = results.length
+  const allPassed = passed === total
+
+  return (
+    <div className={`rounded-lg border overflow-hidden ${
+      allPassed ? 'border-neon/30' : 'border-red-500/30'
+    }`}>
+      {/* Header */}
+      <div className={`flex items-center justify-between px-3 py-2 text-xs
+                       ${allPassed ? 'bg-neon/5' : 'bg-red-500/5'}`}>
+        <div className="flex items-center gap-1.5">
+          <FlaskConical size={12} className={allPassed ? 'text-neon' : 'text-red-400'} />
+          <span className={`font-medium ${allPassed ? 'text-neon' : 'text-red-400'}`}>
+            {allPassed ? 'All tests passed' : `${passed}/${total} tests passed`}
+          </span>
+        </div>
+        <span className="text-gray-600">{total} test cases</span>
+      </div>
+      {/* Rows */}
+      <div className="divide-y divide-surface-elevated max-h-52 overflow-y-auto">
+        {results.map((r, i) => (
+          <TestCaseRow key={i} result={r} index={i} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Output Match (for stdout comparison) ─────────────────
 
 function OutputMatch({ expected, actual }) {
   const match = normalizeOutput(actual) === normalizeOutput(expected)
@@ -43,6 +152,8 @@ function OutputMatch({ expected, actual }) {
   )
 }
 
+// ── Main Component ────────────────────────────────────────
+
 export default function CodeChallenge({ challenge, onComplete, isCompleted, accentClass = 'emerald' }) {
   const [code, setCode] = useState(challenge.starterCode ?? '')
   const [lines, setLines] = useState([])
@@ -50,8 +161,14 @@ export default function CodeChallenge({ challenge, onComplete, isCompleted, acce
   const [submitResult, setSubmitResult] = useState(null) // null | 'correct' | 'wrong'
   const [showHint, setShowHint] = useState(false)
   const [showExpected, setShowExpected] = useState(false)
+  const [showExamples, setShowExamples] = useState(true)
   const [hasRun, setHasRun] = useState(false)
   const [actualOutput, setActualOutput] = useState('')
+  const [testResults, setTestResults] = useState(null)
+  const [runningTests, setRunningTests] = useState(false)
+
+  const hasTestCases = challenge.testCases && challenge.testCases.length > 0
+  const hasExamples = challenge.examples && challenge.examples.length > 0
 
   // Preload pyodide if python
   useEffect(() => {
@@ -68,6 +185,9 @@ export default function CodeChallenge({ challenge, onComplete, isCompleted, acce
     setHasRun(false)
     setActualOutput('')
     setShowHint(false)
+    setTestResults(null)
+    setRunningTests(false)
+    setShowExamples(true)
   }, [challenge.id, challenge.starterCode])
 
   const ACCENT = {
@@ -81,6 +201,7 @@ export default function CodeChallenge({ challenge, onComplete, isCompleted, acce
     setSubmitResult(null)
     setHasRun(false)
     setActualOutput('')
+    setTestResults(null)
   }
 
   const handleCheckSolution = async () => {
@@ -89,31 +210,50 @@ export default function CodeChallenge({ challenge, onComplete, isCompleted, acce
     setLines([])
     setSubmitResult(null)
     setHasRun(true)
+    setTestResults(null)
 
     const expected = challenge.expectedOutput
     const language = challenge.language ?? 'javascript'
 
-    const result = await validateCode(language, code, expected)
-    
+    // Run visible code for terminal output
+    const codeResult = await validateCode(language, code, expected)
+
     const newLines = []
-    if (result.actualOutput) {
-      newLines.push({ type: 'log', text: result.actualOutput })
+    if (codeResult.actualOutput) {
+      newLines.push({ type: 'log', text: codeResult.actualOutput })
     }
-    if (result.error) {
-      newLines.push({ type: 'error', text: `✖ ${result.error}` })
+    if (codeResult.error) {
+      newLines.push({ type: 'error', text: `✖ ${codeResult.error}` })
     }
     if (newLines.length === 0) {
       newLines.push({ type: 'info', text: '(no output)' })
     }
     setLines(newLines)
-    setActualOutput(result.actualOutput || '')
+    setActualOutput(codeResult.actualOutput || '')
     setRunning(false)
 
-    if (result.passed) {
-      setSubmitResult('correct')
-      onComplete?.()
+    // Run hidden test cases
+    if (hasTestCases) {
+      setRunningTests(true)
+      const tcResults = await runTestCases(language, code, challenge.testCases)
+      setTestResults(tcResults)
+      setRunningTests(false)
+
+      const allPassed = tcResults.length > 0 && tcResults.every(r => r.passed)
+      if (allPassed) {
+        setSubmitResult('correct')
+        onComplete?.()
+      } else {
+        setSubmitResult('wrong')
+      }
     } else {
-      setSubmitResult('wrong')
+      // Fall back to stdout comparison
+      if (codeResult.passed) {
+        setSubmitResult('correct')
+        onComplete?.()
+      } else {
+        setSubmitResult('wrong')
+      }
     }
   }
 
@@ -157,6 +297,20 @@ export default function CodeChallenge({ challenge, onComplete, isCompleted, acce
         )}
       </div>
 
+      {/* Examples */}
+      {hasExamples && (
+        <div>
+          <button
+            onClick={() => setShowExamples(v => !v)}
+            className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-gray-400 transition-colors mb-2"
+          >
+            {showExamples ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            {showExamples ? 'Hide examples' : 'Show examples'} ({challenge.examples.length})
+          </button>
+          {showExamples && <ExamplesPanel examples={challenge.examples} />}
+        </div>
+      )}
+
       {/* Compiler — takes remaining height */}
       <div className="flex-1 min-h-[380px]">
         <WebCompiler
@@ -171,28 +325,35 @@ export default function CodeChallenge({ challenge, onComplete, isCompleted, acce
         />
       </div>
 
-      {/* Expected output toggle */}
-      <div>
-        <button
-          onClick={() => setShowExpected(v => !v)}
-          className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-gray-400 transition-colors"
-        >
-          {showExpected ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-          {showExpected ? 'Hide expected output' : 'Show expected output'}
-        </button>
-        {showExpected && (
-          <div className="mt-2 p-3 rounded-lg bg-midnight-900 border border-surface-elevated animate-fade-in">
-            <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-1">Expected Output</p>
-            <pre className="text-xs font-mono text-gray-300 whitespace-pre-wrap">
-              {challenge.expectedOutput}
-            </pre>
-          </div>
-        )}
-      </div>
+      {/* Expected output toggle (only shown when no test cases) */}
+      {!hasTestCases && (
+        <div>
+          <button
+            onClick={() => setShowExpected(v => !v)}
+            className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-gray-400 transition-colors"
+          >
+            {showExpected ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            {showExpected ? 'Hide expected output' : 'Show expected output'}
+          </button>
+          {showExpected && (
+            <div className="mt-2 p-3 rounded-lg bg-midnight-900 border border-surface-elevated animate-fade-in">
+              <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-1">Expected Output</p>
+              <pre className="text-xs font-mono text-gray-300 whitespace-pre-wrap">
+                {challenge.expectedOutput}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
 
-      {/* Output comparison */}
-      {hasRun && submitResult && !running && (
+      {/* Output comparison (stdout, only when no test cases) */}
+      {!hasTestCases && hasRun && submitResult && !running && (
         <OutputMatch expected={challenge.expectedOutput} actual={actualOutput} />
+      )}
+
+      {/* Test cases results */}
+      {hasTestCases && (hasRun || runningTests) && (
+        <TestResultsPanel results={testResults} running={runningTests} />
       )}
 
       {/* Submit button + result */}
@@ -200,11 +361,11 @@ export default function CodeChallenge({ challenge, onComplete, isCompleted, acce
         <div className="flex items-center gap-3">
           <button
             onClick={handleCheckSolution}
-            disabled={running}
+            disabled={running || runningTests}
             className="btn-primary flex items-center gap-2"
           >
-            {running ? (
-              <><Loader2 size={14} className="animate-spin" /> Testing...</>
+            {(running || runningTests) ? (
+              <><Loader2 size={14} className="animate-spin" /> Testing…</>
             ) : (
               <><Play size={14} className="fill-current" /> Check Solution</>
             )}
@@ -212,7 +373,7 @@ export default function CodeChallenge({ challenge, onComplete, isCompleted, acce
           {submitResult === 'wrong' && (
             <span className="text-xs text-red-400 flex items-center gap-1">
               <XCircle size={12} />
-              Output doesn't match
+              {hasTestCases ? 'Some tests failed' : "Output doesn't match"}
             </span>
           )}
         </div>

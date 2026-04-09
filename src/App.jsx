@@ -1,8 +1,10 @@
 import React, { useState } from 'react'
-import { Settings, RotateCcw, X, Zap } from 'lucide-react'
+import { Settings, RotateCcw, X, Zap, LogOut, User } from 'lucide-react'
 import Dashboard from './components/Dashboard'
 import SubjectView from './components/SubjectView'
+import AuthPage from './components/AuthPage'
 import { useProgress } from './hooks/useProgress'
+import { useAuth } from './hooks/useAuth'
 
 // ── Dev Reset Modal ───────────────────────────────────────
 
@@ -16,7 +18,7 @@ function ResetModal({ onConfirm, onCancel }) {
         </button>
         <h3 className="text-base font-semibold text-white mb-1">Reset All Progress?</h3>
         <p className="text-sm text-gray-500 mb-5">
-          This will erase all completed challenges and unlock states permanently.
+          This will erase all your completed challenges and unlock states permanently.
         </p>
         <div className="flex gap-2">
           <button onClick={onConfirm} className="btn-danger flex-1">Yes, Reset Everything</button>
@@ -29,7 +31,7 @@ function ResetModal({ onConfirm, onCancel }) {
 
 // ── Top Navigation Bar ────────────────────────────────────
 
-function NavBar({ onGoHome, onShowReset, view }) {
+function NavBar({ onGoHome, onShowReset, onLogout, view, displayName }) {
   return (
     <nav className="sticky top-0 z-40 bg-midnight-900/95 backdrop-blur border-b border-surface-elevated">
       <div className="max-w-6xl mx-auto px-4 h-12 flex items-center justify-between">
@@ -62,12 +64,26 @@ function NavBar({ onGoHome, onShowReset, view }) {
 
         {/* Actions */}
         <div className="flex items-center gap-1">
+          {/* User badge */}
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface text-xs text-gray-400 border border-surface-elevated mr-1">
+            <User size={11} className="text-gray-600" />
+            <span className="max-w-[80px] truncate">{displayName}</span>
+          </div>
+
           <button
             onClick={onShowReset}
-            title="Reset progress (dev)"
+            title="Reset progress"
             className="p-2 rounded-lg text-gray-600 hover:text-gray-400 hover:bg-surface transition-colors"
           >
             <RotateCcw size={14} />
+          </button>
+
+          <button
+            onClick={onLogout}
+            title="Log out"
+            className="p-2 rounded-lg text-gray-600 hover:text-red-400 hover:bg-surface transition-colors"
+          >
+            <LogOut size={14} />
           </button>
         </div>
       </div>
@@ -99,17 +115,27 @@ function UnlockToast({ message, onDismiss }) {
 // ── App Root ──────────────────────────────────────────────
 
 export default function App() {
-  const progressHook = useProgress()
-  const [view, setView] = useState('dashboard') // 'dashboard' | subjectId
+  const { currentUser, register, login, logout, getDisplayName } = useAuth()
+  const progressHook = useProgress(currentUser)
+  const [view, setView] = useState('dashboard')
   const [showReset, setShowReset] = useState(false)
   const [toast, setToast] = useState(null)
 
+  // Show auth page if not logged in
+  if (!currentUser) {
+    return (
+      <AuthPage
+        onLogin={login}
+        onRegister={register}
+      />
+    )
+  }
+
   // Wrap completeChallenge to show unlock toasts
-  // Signature: (subjectId, levelId, challengeIndex, challengeId)
   const wrappedCompleteChallenge = (subjectId, levelId, challengeIndex, challengeId) => {
     const result = progressHook.completeChallenge(subjectId, levelId, challengeIndex, challengeId)
     if (result?.newLevelUnlocked) {
-      const subject = progressHook.progress[subjectId]
+      const subject = progressHook.progress?.[subjectId]
       const newIdx = (subject?.currentLevelIndex ?? 1)
       setToast(`Level ${newIdx + 1} Unlocked! Keep going!`)
     }
@@ -127,12 +153,19 @@ export default function App() {
     setView('dashboard')
   }
 
+  const handleLogout = () => {
+    setView('dashboard')
+    logout()
+  }
+
   return (
     <div className="min-h-screen bg-midnight-900">
       <NavBar
         onGoHome={() => setView('dashboard')}
         onShowReset={() => setShowReset(true)}
+        onLogout={handleLogout}
         view={view}
+        displayName={getDisplayName()}
       />
 
       <main>

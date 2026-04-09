@@ -58,10 +58,15 @@ function ChallengeDispatcher({ challenge, onComplete, isCompleted, accentClass }
 // ── Success overlay (auto-advance flash) ─────────────────
 
 function SuccessFlash({ challenge, onDismiss, isLastChallenge, isLastLevel }) {
+  // Store latest onDismiss in a ref so the timer never needs to restart
+  const dismissRef = useRef(onDismiss)
+  useEffect(() => { dismissRef.current = onDismiss }, [onDismiss])
+
+  // Start the timer ONCE on mount — it will always call the latest onDismiss
   useEffect(() => {
-    const t = setTimeout(onDismiss, 2000)
+    const t = setTimeout(() => dismissRef.current?.(), 2000)
     return () => clearTimeout(t)
-  }, [onDismiss])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="absolute inset-0 z-20 flex items-center justify-center
@@ -141,7 +146,9 @@ export default function SubjectView({ subjectId, onBack, progressHook }) {
 
   // ── Success flash state ──
   const [showSuccess, setShowSuccess] = useState(false)
-  const pendingAdvanceRef = useRef(null)
+  // Stores the index that was just completed so the auto-advance knows where to go,
+  // even if the user clicks a sidebar item during the flash.
+  const justCompletedIndexRef = useRef(null)
 
   // When level changes, reset to theory gate or active challenge
   useEffect(() => {
@@ -150,10 +157,7 @@ export default function SubjectView({ subjectId, onBack, progressHook }) {
     const hu = getHighestUnlockedIndex(subjectId, levelId)
     setSelectedChallengeIndex_(Math.max(0, hu))
     setShowSuccess(false)
-    if (pendingAdvanceRef.current) {
-      clearTimeout(pendingAdvanceRef.current)
-      pendingAdvanceRef.current = null
-    }
+    justCompletedIndexRef.current = null
   }, [selectedLevelIndex, levelId])
 
   // Re-clamp if unlocked index changes (e.g. after completing a challenge)
@@ -185,33 +189,39 @@ export default function SubjectView({ subjectId, onBack, progressHook }) {
   const handleChallengeComplete = useCallback(() => {
     if (!challenge) return
     completeChallenge(subjectId, levelId, selectedChallengeIndex, challenge.id)
+    justCompletedIndexRef.current = selectedChallengeIndex
     setShowSuccess(true)
+  }, [challenge, subjectId, levelId, selectedChallengeIndex, completeChallenge])
 
-    // Auto-advance after 2s flash
-    pendingAdvanceRef.current = setTimeout(() => {
-      setShowSuccess(false)
-      if (!isLastChallenge) {
-        setSelectedChallengeIndex_(selectedChallengeIndex + 1)
-      }
-      pendingAdvanceRef.current = null
-    }, 2000)
-  }, [challenge, subjectId, levelId, selectedChallengeIndex, isLastChallenge, completeChallenge])
+  // Called by SuccessFlash after the 2-second timer — advances from the completed index
+  const handleSuccessDismiss = useCallback(() => {
+    setShowSuccess(false)
+    const completedIdx = justCompletedIndexRef.current
+    justCompletedIndexRef.current = null
+    if (completedIdx !== null && completedIdx < challenges.length - 1) {
+      setSelectedChallengeIndex_(completedIdx + 1)
+    }
+  }, [challenges.length])
 
   const handleSidebarSelect = useCallback((idx) => {
-    // Only allow selecting unlocked challenges
     const status = getChallengeStatus(idx)
     if (status === 'locked') return
+    // If the success flash is showing, cancel it and navigate directly
+    if (showSuccess) {
+      setShowSuccess(false)
+      justCompletedIndexRef.current = null
+    }
     setSelectedChallengeIndex_(idx)
-  }, [getChallengeStatus])
+  }, [getChallengeStatus, showSuccess])
 
   const handleLevelSelect = useCallback((idx) => {
     if (!isLevelUnlocked(subjectId, idx)) return
     setSelectedLevelIndex(idx)
   }, [isLevelUnlocked, subjectId])
 
-  // Cleanup timer on unmount
+  // Cancel success flash on unmount
   useEffect(() => () => {
-    if (pendingAdvanceRef.current) clearTimeout(pendingAdvanceRef.current)
+    justCompletedIndexRef.current = null
   }, [])
 
   const unlocked = isLevelUnlocked(subjectId, selectedLevelIndex)
@@ -311,12 +321,7 @@ export default function SubjectView({ subjectId, onBack, progressHook }) {
                 {showSuccess && (
                   <SuccessFlash
                     challenge={challenge}
-                    onDismiss={() => {
-                      setShowSuccess(false)
-                      if (!isLastChallenge) {
-                        setSelectedChallengeIndex_(selectedChallengeIndex + 1)
-                      }
-                    }}
+                    onDismiss={handleSuccessDismiss}
                     isLastChallenge={isLastChallenge}
                     isLastLevel={isLastLevel}
                   />

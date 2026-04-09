@@ -2,32 +2,28 @@ import { useState, useEffect, useCallback } from 'react'
 import { SUBJECTS } from '../data/curriculum'
 
 /**
- * STORAGE KEY bumped to v2 — incompatible shape change.
+ * Progress is stored per-user. The storage key is:
+ *   lms_progress_v2_<userId>   (when a user is logged in)
+ *   lms_progress_v2            (legacy fallback)
  *
  * State shape:
  * {
  *   [subjectId]: {
- *     currentLevelIndex: number,          // which level the user is actively working on
+ *     currentLevelIndex: number,
  *     levels: {
  *       [levelId]: {
- *         theoryRead:             boolean, // has scrolled + clicked "I Understand"
- *         highestCompletedIndex:  number,  // index of last solved challenge (-1 = none)
- *         completedIds:           string[] // set of completed IDs (for idempotency)
+ *         theoryRead:             boolean,
+ *         highestCompletedIndex:  number,
+ *         completedIds:           string[]
  *       }
  *     }
  *   }
  * }
- *
- * Derived values (not stored, computed on read):
- *   highestUnlockedIndex = theoryRead ? highestCompletedIndex + 1 : -1
- *
- * Challenge status for index i:
- *   COMPLETED → i <= highestCompletedIndex
- *   CURRENT   → i === highestCompletedIndex + 1  AND  theoryRead
- *   LOCKED    → everything else
  */
 
-const STORAGE_KEY = 'lms_progress_v2'
+function storageKey(userId) {
+  return userId ? `lms_progress_v2_${userId}` : 'lms_progress_v2'
+}
 
 // ── Initial state builder ─────────────────────────────────
 
@@ -55,9 +51,9 @@ function buildInitialState() {
 
 // ── Storage helpers ───────────────────────────────────────
 
-function loadFromStorage() {
+function loadFromStorage(userId) {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = localStorage.getItem(storageKey(userId))
     if (!raw) return null
     return JSON.parse(raw)
   } catch {
@@ -72,11 +68,9 @@ function mergeWithDefaults(saved) {
       saved[subjectId] = defaults[subjectId]
       continue
     }
-    // Ensure levels map exists
     if (!saved[subjectId].levels) {
       saved[subjectId].levels = {}
     }
-    // Backfill any new levels added to curriculum later
     const subject = SUBJECTS.find(s => s.id === subjectId)
     for (const level of subject.levels) {
       if (!saved[subjectId].levels[level.id]) {
@@ -89,49 +83,43 @@ function mergeWithDefaults(saved) {
 
 // ── Hook ─────────────────────────────────────────────────
 
-export function useProgress() {
+export function useProgress(userId) {
   const [progress, setProgress] = useState(() => {
-    const saved = loadFromStorage()
+    const saved = loadFromStorage(userId)
     return saved ? mergeWithDefaults(saved) : buildInitialState()
   })
+
+  // Reload when the logged-in user changes
+  useEffect(() => {
+    const saved = loadFromStorage(userId)
+    setProgress(saved ? mergeWithDefaults(saved) : buildInitialState())
+  }, [userId])
 
   // Persist on every change
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(progress))
+      localStorage.setItem(storageKey(userId), JSON.stringify(progress))
     } catch (e) {
       console.warn('Progress save failed:', e)
     }
-  }, [progress])
+  }, [progress, userId])
 
   // ── Getters ─────────────────────────────────────────────
 
-  /** Raw level state */
   const getLevelState = useCallback((subjectId, levelId) => {
     return progress[subjectId]?.levels?.[levelId] ?? buildInitialLevelState()
   }, [progress])
 
-  /**
-   * Has the user read the theory for this level?
-   */
   const isTheoryRead = useCallback((subjectId, levelId) => {
     return getLevelState(subjectId, levelId).theoryRead
   }, [getLevelState])
 
-  /**
-   * Highest challenge INDEX the user can access (0-based).
-   * -1  → theory not yet read (no challenges accessible)
-   *  N  → challenges 0..N are accessible; N is the active unsolved one
-   */
   const getHighestUnlockedIndex = useCallback((subjectId, levelId) => {
     const ls = getLevelState(subjectId, levelId)
     if (!ls.theoryRead) return -1
     return ls.highestCompletedIndex + 1
   }, [getLevelState])
 
-  /**
-   * 'completed' | 'current' | 'locked'
-   */
   const getChallengeStatus = useCallback((subjectId, levelId, challengeIndex) => {
     const ls = getLevelState(subjectId, levelId)
     if (!ls.theoryRead) return 'locked'
@@ -144,7 +132,6 @@ export function useProgress() {
     return getLevelState(subjectId, levelId).completedIds.includes(challengeId)
   }, [getLevelState])
 
-  /** { completed, required, pct } */
   const getLevelProgress = useCallback((subjectId, levelId) => {
     const subject = SUBJECTS.find(s => s.id === subjectId)
     if (!subject) return { completed: 0, required: 0, pct: 0 }
@@ -175,13 +162,10 @@ export function useProgress() {
 
   // ── Mutators ─────────────────────────────────────────────
 
-  /**
-   * Mark theory as read → unlocks challenge 0.
-   */
   const markTheoryRead = useCallback((subjectId, levelId) => {
     setProgress(prev => {
       const ls = prev[subjectId]?.levels?.[levelId]
-      if (!ls || ls.theoryRead) return prev  // already read
+      if (!ls || ls.theoryRead) return prev
       return {
         ...prev,
         [subjectId]: {
@@ -195,12 +179,6 @@ export function useProgress() {
     })
   }, [])
 
-  /**
-   * Complete a challenge.
-   * challengeIndex MUST equal highestCompletedIndex + 1 (the current active challenge).
-   * Silently ignores out-of-order attempts.
-   * Returns { alreadyDone, newLevelUnlocked }
-   */
   const completeChallenge = useCallback((subjectId, levelId, challengeIndex, challengeId) => {
     let alreadyDone = false
     let newLevelUnlocked = false
@@ -212,20 +190,17 @@ export function useProgress() {
       const ls = subState.levels?.[levelId]
       if (!ls) return prev
 
-      // Idempotent
       if (ls.completedIds.includes(challengeId)) {
         alreadyDone = true
         return prev
       }
 
-      // Strictly sequential — only the CURRENT challenge can be solved
       const expectedIndex = ls.highestCompletedIndex + 1
       if (challengeIndex !== expectedIndex) return prev
 
       const newHighest = challengeIndex
       const newCompletedIds = [...ls.completedIds, challengeId]
 
-      // Check if the whole level is now done (unlocks next level)
       const subject = SUBJECTS.find(s => s.id === subjectId)
       const level = subject?.levels.find(l => l.id === levelId)
       const levelIndex = subject?.levels.findIndex(l => l.id === levelId) ?? -1
@@ -260,14 +235,11 @@ export function useProgress() {
     return { alreadyDone, newLevelUnlocked }
   }, [])
 
-  /**
-   * Hard reset everything.
-   */
   const resetProgress = useCallback(() => {
     const fresh = buildInitialState()
     setProgress(fresh)
-    localStorage.removeItem(STORAGE_KEY)
-  }, [])
+    localStorage.removeItem(storageKey(userId))
+  }, [userId])
 
   const resetSubject = useCallback((subjectId) => {
     setProgress(prev => ({
@@ -277,6 +249,8 @@ export function useProgress() {
   }, [])
 
   return {
+    // expose raw progress (used in App.jsx for toast level index)
+    progress,
     // getters
     isTheoryRead,
     getHighestUnlockedIndex,

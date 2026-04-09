@@ -154,3 +154,71 @@ export async function validateCode(language, code, expectedOutput) {
   const match = normalizeOutput(result.output) === normalizeOutput(expectedOutput);
   return { passed: match, actualOutput: result.output, error: '' };
 }
+
+/**
+ * Run all test cases against user code in a single sandbox execution.
+ * Each test case: { call: string, expected: string }
+ * The harness eval()s each call inside the user's code context and compares
+ * the stringified return value to expected.
+ *
+ * Returns array of { call, expected, actual, passed, error }
+ */
+export async function runTestCases(language, userCode, testCases) {
+  if (!testCases || testCases.length === 0) return [];
+
+  const harness = `
+;(function() {
+  const __cases = ${JSON.stringify(testCases)};
+  const __results = [];
+  for (const tc of __cases) {
+    try {
+      const __val = eval(tc.call);
+      const __actual = String(__val);
+      __results.push({
+        call: tc.call,
+        expected: tc.expected,
+        actual: __actual,
+        passed: __actual.trim() === String(tc.expected).trim(),
+        error: ''
+      });
+    } catch(e) {
+      __results.push({
+        call: tc.call,
+        expected: tc.expected,
+        actual: '',
+        passed: false,
+        error: e.message
+      });
+    }
+  }
+  console.log('__TC_RESULTS__:' + JSON.stringify(__results));
+})();`;
+
+  const code = userCode + '\n' + harness;
+  let result;
+  if (language === 'python') {
+    result = await runPython(code);
+  } else {
+    result = await runJavaScript(code);
+  }
+
+  const lines = (result.output || '').split('\n');
+  for (const line of lines) {
+    if (line.startsWith('__TC_RESULTS__:')) {
+      try {
+        return JSON.parse(line.slice('__TC_RESULTS__:'.length));
+      } catch {
+        break;
+      }
+    }
+  }
+
+  // Harness didn't produce output — map error to all cases
+  return testCases.map(tc => ({
+    call: tc.call,
+    expected: tc.expected,
+    actual: '',
+    passed: false,
+    error: result.error || 'Runtime error',
+  }));
+}
